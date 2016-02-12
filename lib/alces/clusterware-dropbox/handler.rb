@@ -68,7 +68,7 @@ module Alces
         target_name =
           if args[1]
             if File.directory?(args[1])
-              File.join(target_name, File.basename(args.first))
+              File.join(args[1], File.basename(args.first))
             else
               args[1]
             end
