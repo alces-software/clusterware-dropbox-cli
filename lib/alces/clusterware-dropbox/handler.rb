@@ -27,7 +27,7 @@ module Alces
       def method_missing(s,*a,&b)
         if Handler.instance_methods.include?(s)
           Bundler.with_clean_env do
-            Handler.new(*a).send(s)
+            Handler.new(*a, requires_token: s != :authorize).send(s)
           end
         else
           super
@@ -42,8 +42,9 @@ module Alces
     end
 
     class Handler < Struct.new(:args, :options)
-      def initialize(*)
-        super
+      def initialize(*a, requires_token: true)
+        super(*a)
+        assert_token if requires_token
       end
 
       def put
@@ -54,11 +55,13 @@ module Alces
         end
         target_name = args[1] || File.basename(args.first)
         begin
-          client.find(target_name)
+          target = client.find(target_name)
         rescue Dropbox::API::Error::NotFound
           nil
         else
-          raise FileExists, "a remote file already exists at: #{target_name}"
+          if !target.is_deleted
+            raise FileExists, "a remote file already exists at: #{target_name}"
+          end
         end
         client.chunked_upload(target_name, File.open(args[0]))
         say "#{args[0]} -> #{target_name}"
@@ -163,8 +166,8 @@ module Alces
       
       private
       def client
-        @client ||= Dropbox::API::Client.new(token: options.token || ENV['cw_DROPBOX_access_token'],
-                                             secret: options.secret || ENV['cw_DROPBOX_secret_token'])
+        @client ||= Dropbox::API::Client.new(token: ENV['cw_STORAGE_dropbox_access_token'],
+                                             secret: ENV['cw_STORAGE_dropbox_access_secret'])
       end
 
       def target(type = :file)
@@ -181,6 +184,12 @@ module Alces
         end
       rescue Dropbox::API::Error::NotFound
         raise TargetNotFound, "#{type} not found: #{args.first}"
+      end
+
+      def assert_token
+        if !ENV['cw_STORAGE_dropbox_access_token'] || !ENV['cw_STORAGE_dropbox_access_secret']
+          raise Unauthorized, "access token (cw_STORAGE_dropbox_access_token) and secret (cw_STORAGE_dropbox_access_secret) environment variables were not set"
+        end
       end
     end
   end

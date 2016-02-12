@@ -28,9 +28,6 @@ module Alces
         program :version, '1.0.0'
         program :description, 'A basic command-line interface to Dropbox (for use with Alces Clusterware)'
 
-        global_option '--token TOKEN', String, 'Dropbox account token'
-        global_option '--secret SECRET', String, 'Dropbox account secret'
-        
         command :put do |c|
           c.syntax = 'clusterware-dropbox put SOURCE [TARGET]'
           c.summary = 'Upload a file'
