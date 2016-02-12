@@ -29,7 +29,7 @@ require 'alces/clusterware-dropbox/handler'
 require 'alces/clusterware-dropbox/cli'
 
 HighLine.colorize_strings
-Dotenv.load
+Dotenv.load(File.expand_path("#{ENV['BUNDLE_GEMFILE']}/../.env"))
 Dropbox::API::Config.app_key = ENV['cw_STORAGE_dropbox_appkey']
 Dropbox::API::Config.app_secret = ENV['cw_STORAGE_dropbox_appsecret']
 Dropbox::API::Config.mode = 'dropbox'
