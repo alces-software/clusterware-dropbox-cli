@@ -25,67 +25,59 @@ module Alces
       include Commander::Methods
 
       def run
-        program :version, '0.0.1'
-        program :description, 'Integration with Dropbox for Alces Clusterware storage'
+        program :version, '1.0.0'
+        program :description, 'A basic command-line interface to Dropbox (for use with Alces Clusterware)'
 
-        global_option '-t', '--token TOKEN', String, 'Dropbox account token'
-        global_option '-s', '--secret SECRET', String, 'Dropbox account secret'
+        global_option '--token TOKEN', String, 'Dropbox account token'
+        global_option '--secret SECRET', String, 'Dropbox account secret'
         
         command :put do |c|
-          c.syntax = 'clusterware-dropbox get [options]'
-          c.summary = ''
-          c.description = ''
+          c.syntax = 'clusterware-dropbox put SOURCE [TARGET]'
+          c.summary = 'Upload a file'
           c.action HandlerProxy, :put
         end
 
         command :get do |c|
-          c.syntax = 'clusterware-dropbox get [options]'
-          c.summary = ''
-          c.description = ''
+          c.syntax = 'clusterware-dropbox get SOURCE [TARGET]'
+          c.summary = 'Download a file'
           c.action HandlerProxy, :get
         end
 
         command :rm do |c|
-          c.syntax = 'clusterware-dropbox rm [options]'
-          c.summary = ''
-          c.description = ''
+          c.syntax = 'clusterware-dropbox rm TARGET'
+          c.summary = 'Delete a remote file'
           c.action HandlerProxy, :rm
         end
 
         command :mkdir do |c|
-          c.syntax = 'clusterware-dropbox mkdir [options]'
-          c.summary = ''
-          c.description = ''
+          c.syntax = 'clusterware-dropbox mkdir TARGET'
+          c.summary = 'Make a remote directory'
           c.action HandlerProxy, :mkdir
         end
 
         command :rmdir do |c|
-          c.syntax = 'clusterware-dropbox rmdir [options]'
-          c.summary = ''
-          c.description = ''
+          c.syntax = 'clusterware-dropbox rmdir TARGET'
+          c.summary = 'Remove a remote directory tree'
           c.action HandlerProxy, :rmdir
         end
 
         command :list do |c|
-          c.syntax = 'clusterware-dropbox list [options]'
-          c.summary = ''
-          c.description = ''
+          c.syntax = 'clusterware-dropbox list [TARGET]'
+          c.summary = 'List remote files and directories'
           c.action HandlerProxy, :list
         end
         alias_command :ls, :list
         
         command :authorize do |c|
-          c.syntax = 'clusterware-dropbox authorize [options]'
-          c.summary = ''
-          c.description = ''
+          c.syntax = 'clusterware-dropbox authorize'
+          c.summary = 'Interactively authorize a Dropbox account'
           c.action HandlerProxy, :authorize
           c.option '-q', '--quiet', "Don't emit filename when tokens are written to a file"
         end
 
         command :verify do |c|
-          c.syntax = 'clusterware-dropbox verify [options]'
-          c.summary = ''
-          c.description = ''
+          c.syntax = 'clusterware-dropbox verify'
+          c.summary = 'Verify an account token/secret is working'
           c.action HandlerProxy, :verify
         end
 
