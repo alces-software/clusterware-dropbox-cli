@@ -61,6 +61,7 @@ module Alces
           raise FileExists, "a remote file already exists at: #{target_name}"
         end
         client.chunked_upload(target_name, File.open(args[0]))
+        say "#{args[0]} -> #{target_name}"
       end
 
       def get
@@ -82,10 +83,12 @@ module Alces
         if ! system("curl -L -s -o \"#{target_name}\" #{target.direct_url.url}")
           raise DownloadFailed, "failed to download: #{args.first}"
         end
+        say "#{args[0]} -> #{File.realpath(target_name)}"
       end
 
       def rm
         target(:file).destroy
+        say "deleted #{args[0]}"
       end
 
       def list
@@ -113,10 +116,12 @@ module Alces
         else
           raise MissingArgument, "no directory name supplied"
         end
+        say "created bucket #{args[0]}"
       end
 
       def rmdir
         target(:directory).destroy
+        say "removed bucket #{args[0]}"
       end
 
       def authorize
