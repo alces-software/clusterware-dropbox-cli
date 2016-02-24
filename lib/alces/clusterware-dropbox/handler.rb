@@ -63,7 +63,11 @@ module Alces
             raise FileExists, "a remote file already exists at: #{target_name}"
           end
         end
-        client.chunked_upload(target_name, File.open(args[0]))
+        if File.size(args[0]) == 0
+          client.upload(target_name, '')
+        else
+          client.chunked_upload(target_name, File.open(args[0]))
+        end
         say "#{args[0]} -> #{target_name}"
       end
 
