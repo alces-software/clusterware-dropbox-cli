@@ -32,18 +32,21 @@ module Alces
           c.syntax = 'clusterware-dropbox put SOURCE [TARGET]'
           c.summary = 'Upload a file'
           c.action HandlerProxy, :put
+          c.option '--recursive', "Recursively upload source directory to Dropbox"
         end
 
         command :get do |c|
           c.syntax = 'clusterware-dropbox get SOURCE [TARGET]'
           c.summary = 'Download a file'
           c.action HandlerProxy, :get
+          c.option '--recursive', "Recursively download source directory from Dropbox"
         end
 
         command :rm do |c|
           c.syntax = 'clusterware-dropbox rm TARGET'
           c.summary = 'Delete a remote file'
           c.action HandlerProxy, :rm
+          c.option '--recursive', "Recursively delete target directory from Dropbox"
         end
 
         command :mkdir do |c|

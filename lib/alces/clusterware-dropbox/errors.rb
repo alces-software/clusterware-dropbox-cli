@@ -19,17 +19,12 @@
 # For more information on the Alces Clusterware Dropbox, please visit:
 # https://github.com/alces-software/clusterware-dropbox
 #==============================================================================
-require 'time'
-require 'dropbox-api'
-Dropbox::API::Config.app_key    = 'rfi1onbc9xemltz'
-Dropbox::API::Config.app_secret = '5xctss4cpfnqli8'
-Dropbox::API::Config.mode       = "dropbox"
-
 module Alces
   module ClusterwareDropbox
     class Error < StandardError; end
     class MissingArgument < Error; end
     class TargetNotFound < Error; end
+    class InvalidSource < Error; end
     class SourceNotFound < Error; end
     class FileExists < Error; end
     class DownloadFailed < Error; end

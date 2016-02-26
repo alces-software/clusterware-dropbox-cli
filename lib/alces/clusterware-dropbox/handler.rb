@@ -20,6 +20,7 @@
 # https://github.com/alces-software/clusterware-dropbox
 #==============================================================================
 require 'time'
+require 'pathname'
 
 module Alces
   module ClusterwareDropbox
@@ -49,9 +50,11 @@ module Alces
 
       def put
         if args.length < 1
-          raise MissingArgument, "source file must be specified"
+          raise MissingArgument, "source must be specified"
+        elsif File.directory?(args.first) && !options.recursive
+          raise InvalidSource, "specified source was directory - try --recursive"
         elsif !File.exists?(args.first)
-          raise SourceNotFound, "could not find source file: #{args.first}"
+          raise SourceNotFound, "could not find source: #{args.first}"
         end
         target_name = args[1] || File.basename(args.first)
         begin
@@ -63,18 +66,31 @@ module Alces
             raise FileExists, "a remote file already exists at: #{target_name}"
           end
         end
-        if File.size(args[0]) == 0
-          client.upload(target_name, '')
-        else
-          client.chunked_upload(target_name, File.open(args[0]))
+
+        uploader = ->(src, tgt) do
+          if File.directory?(src)
+            src_root = Pathname.new(src)
+            Dir.glob(File.join(src_root,'*')).each do |f|
+              rel_src = Pathname.new(f).relative_path_from(src_root).to_s
+              uploader.call(f, File.join(tgt,rel_src))
+            end
+          else
+            if File.size(src) == 0
+              client.upload(tgt, '')
+            else
+              client.chunked_upload(tgt, File.open(src))
+            end
+            say "#{src} -> #{tgt}"
+          end
         end
-        say "#{args[0]} -> #{target_name}"
+        
+        uploader.call(args.first,target_name)
       end
 
       def get
         target_name =
           if args[1]
-            if File.directory?(args[1])
+            if File.directory?(args[1]) && !options.recursive
               File.join(args[1], File.basename(args.first))
             else
               args[1]
@@ -87,15 +103,55 @@ module Alces
           raise FileExists, "a local file already exists at: #{target_name}"
         end
 
-        if ! system("curl -L -s -o \"#{target_name}\" #{target.direct_url.url}")
-          raise DownloadFailed, "failed to download: #{args.first}"
+        downloader = ->(name, tgt) do
+          remote = resolve_target(name)
+          if ! system("curl -L -s -o \"#{tgt}\" #{remote.direct_url.url}")
+            raise DownloadFailed, "failed to download: #{name}"
+          end
+          say "#{name} -> #{File.realpath(tgt)}"
         end
-        say "#{args[0]} -> #{File.realpath(target_name)}"
+
+        lister = ->(dir) do
+          client.ls(dir).map do |f|
+            if f.is_dir
+              lister.call(f.path)
+            else
+              f.path
+            end
+          end.flatten.reverse
+        end
+        
+        if options.recursive
+          resolve_target(args.first, :directory)
+          lister.call(args.first).each do |src|
+            tgt_file = File.join(target_name,src.gsub(%r(^#{args.first}/),''))
+            FileUtils.mkdir_p(File.dirname(tgt_file))
+            downloader.call(src, tgt_file)
+          end
+        else
+          downloader.call(args.first, target_name)
+        end
       end
 
       def rm
-        target(:file).destroy
-        say "deleted #{args[0]}"
+        if options.recursive
+          base = resolve_target(args.first, :directory)
+          destroyer = ->(dir) do
+            client.ls(dir).map do |f|
+              if f.is_dir
+                destroyer.call(f.path)
+              end
+              f.destroy
+              say "deleted #{f.path}"
+            end
+          end
+          destroyer.call(args.first)
+          base.destroy
+          say "deleted #{base.path}"
+        else
+          target(:file).destroy
+          say "deleted #{args[0]}"
+        end
       end
 
       def list
@@ -176,15 +232,19 @@ module Alces
 
       def target(type = :file)
         if args.length > 0
-          client.find(args.first).tap do |f|
-            if f.is_dir && type == :file
-              raise TargetNotFound, "#{type} not found: #{args.first}"
-            elsif !f.is_dir && type == :directory
-              raise TargetNotFound, "#{type} not found: #{args.first}"
-            end
-          end
+          resolve_target(args.first, type)
         else
           raise MissingArgument, "no #{type} name supplied"
+        end
+      end
+
+      def resolve_target(name, type = :file)
+        client.find(name).tap do |f|
+          if f.is_dir && type == :file
+            raise TargetNotFound, "#{type} not found: #{args.first}"
+          elsif !f.is_dir && type == :directory
+            raise TargetNotFound, "#{type} not found: #{args.first}"
+          end
         end
       rescue Dropbox::API::Error::NotFound
         raise TargetNotFound, "#{type} not found: #{args.first}"
