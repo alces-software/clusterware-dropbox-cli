@@ -33,7 +33,7 @@ module Alces
         else
           super
         end
-      rescue Dropbox::API::Error, Alces::ClusterwareDropbox::Error
+      rescue DropboxApi::Errors, Alces::ClusterwareDropbox::Error
         say "#{'ERROR'.underline.color(:red)}: #{$!.message}"
         exit(1)
       rescue Interrupt
@@ -45,8 +45,12 @@ module Alces
     class Handler < Struct.new(:args, :options)
       def initialize(*a, requires_token: true)
         super(*a)
+        Dotenv.load(File.expand_path("#{ENV['cw_ROOT']}/opt/clusterware-dropbox-cli/.env"))
         assert_token if requires_token
       end
+
+=begin
+TO BE REFACTORED
 
       def put
         if args.length < 1
@@ -186,50 +190,39 @@ module Alces
         target(:directory).destroy
         say "removed bucket #{args[0]}"
       end
+=end
 
       def authorize
-        consumer = Dropbox::API::OAuth.consumer(:authorize)
-        request_token = consumer.get_request_token
-        puts "Please visit the following URL in your browser and click 'Authorize':\n\n"
-        puts "  #{request_token.authorize_url}"
-        query = request_token.authorize_url.split('?').last
-        params = CGI.parse(query)
-        token = params['oauth_token'].first
-        puts "\nOnce you have completed authorization, please press ENTER to continue..."
-        $stdin.gets.chomp
-        access_token = request_token.get_access_token(:oauth_verifier => token)
-        print "Authorization complete."
+        authenticator = DropboxApi::Authenticator.new(
+                          ENV['cw_STORAGE_dropbox_appkey'],
+                          ENV['cw_STORAGE_dropbox_appsecret'])
+        puts "Please visit the following URL in your browser and click 'Allow':\n\n"
+        puts "  #{authenticator.authorize_url}"
+        print "\nEnter dropbox authorization code: "
+        token = authenticator.get_token($stdin.gets.chomp).token
         if args.first
-          data = ["cw_STORAGE_dropbox_access_token='#{access_token.token}'",
-                  "cw_STORAGE_dropbox_access_secret='#{access_token.secret}'"]
-          File.write(args.first, data.join("\n"))
-          if options.quiet
-            puts ""
-          else
-            puts "  Your access token and secret are available in: #{args.first}"
-          end
+          File.write(args.first, "cw_STORAGE_dropbox_access_token=#{token}")
         else
-          puts "  Your access token and secret are as follows:\n\n"
-          puts "   Access token: #{access_token.token}"
-          puts "  Access secret: #{access_token.secret}"
+          puts "  Your access token is: #{token}"
         end
-      rescue OAuth::Unauthorized
+      rescue OAuth2::Error => e
         raise Unauthorized, "account authorization failed"
       end
 
       def verify
-        account = client.account
-        puts "#{account.display_name} <#{account.email}> verified."
+        account = client.get_current_account
+        puts "#{account.name.display_name} <#{account.email}> verified."
       rescue Dropbox::API::Error::Unauthorized
         raise Unauthorized, "authorization token is invalid or incorrect"
       end
       
       private
       def client
-        @client ||= Dropbox::API::Client.new(token: ENV['cw_STORAGE_dropbox_access_token'],
-                                             secret: ENV['cw_STORAGE_dropbox_access_secret'])
+        @client ||= DropboxApi::Client.new(ENV['cw_STORAGE_dropbox_access_token'])
       end
 
+=begin
+TO BE REFACTORED
       def target(type = :file)
         if args.length > 0
           resolve_target(args.first, type)
@@ -249,10 +242,11 @@ module Alces
       rescue Dropbox::API::Error::NotFound
         raise TargetNotFound, "#{type} not found: #{args.first}"
       end
-
+=end
       def assert_token
-        if !ENV['cw_STORAGE_dropbox_access_token'] || !ENV['cw_STORAGE_dropbox_access_secret']
-          raise Unauthorized, "access token (cw_STORAGE_dropbox_access_token) and secret (cw_STORAGE_dropbox_access_secret) environment variables were not set"
+        if !ENV['cw_STORAGE_dropbox_access_token']
+          raise Unauthorized, "access token (cw_STORAGE_dropbox_access_token)" \
+                              " environment variable was not set"
         end
       end
     end
