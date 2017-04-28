@@ -58,17 +58,26 @@ module Alces
           raise SourceNotFound, "could not find source: #{args.first}"
         end
         target_name = args[1] || File.basename(args.first)
+        target_name = "/#{target_name}" unless target_name[0] == "/"
         begin
-          target = client.list_folder(target_name)
-        rescue DropboxApi::Errors::NotFoundError, DropboxApi::Errors::HttpError
+          target_filename = File.basename(target_name)
+          target_dir = File.dirname(target_name)
+          # Handles the funky regex in the sdk
+          if target_dir == "/" || target_dir == "/."
+            target_dir = "" 
+          end
+          search = client.search("f", target_dir)
+        rescue DropboxApi::Errors::NotFoundError, DropboxApi::Errors::HttpError => e
           nil
         else
-          if !target.is_deleted
-            raise FileExists, "a remote file already exists at: #{target_name}"
+          search.matches.each do |match|
+            if target_name == match.resource.to_hash["path_display"]
+              raise FileExists, "a remote file already exists at: #{target_name}"
+            end
           end
         end
 
-        uploader = ->(src, tgt) do
+        uploader = ->(tgt, src) do
           if File.directory?(src)
             src_root = Pathname.new(src)
             Dir.glob(File.join(src_root,'*')).each do |f|
@@ -76,10 +85,8 @@ module Alces
               uploader.call(f, File.join(tgt,rel_src))
             end
           else
-            tgt = "/#{tgt}" unless tgt[0] == "/"
             if File.size(src) == 0
-              client.upload(tgt, File.read(src))
-              $stderr.puts "Uploaded Empty File: #{src}"
+              client.upload(tgt, File.read(src), mode: :overwrite)
             else
               session_upload(tgt, src)
             end
@@ -88,7 +95,7 @@ module Alces
         end
         
         begin
-          uploader.call(args.first,target_name)
+          uploader.call(target_name, args.first)
         rescue DropboxApi::Errors::UploadWriteFailedError
           raise UploadFailed, "Could not upload file, check for conflicts"
         end
@@ -111,7 +118,7 @@ module Alces
               session["offset"] += buffer.size
             end
           end
-          client.upload_session_finish(session, "path" => tgt)
+          client.upload_session_finish(session, path: tgt, mode: :overwrite)
         }
 
         # Monitors the upload
