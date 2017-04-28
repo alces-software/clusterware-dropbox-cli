@@ -29,5 +29,6 @@ module Alces
     class FileExists < Error; end
     class DownloadFailed < Error; end
     class Unauthorized < Error; end
+    class UploadFailed < Error; end
   end
 end

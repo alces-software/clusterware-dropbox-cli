@@ -49,9 +49,6 @@ module Alces
         assert_token if requires_token
       end
 
-=begin
-TO BE REFACTORED
-
       def put
         if args.length < 1
           raise MissingArgument, "source must be specified"
@@ -62,8 +59,8 @@ TO BE REFACTORED
         end
         target_name = args[1] || File.basename(args.first)
         begin
-          target = client.find(target_name)
-        rescue Dropbox::API::Error::NotFound
+          target = client.list_folder(target_name)
+        rescue DropboxApi::Errors::NotFoundError, DropboxApi::Errors::HttpError
           nil
         else
           if !target.is_deleted
@@ -79,17 +76,61 @@ TO BE REFACTORED
               uploader.call(f, File.join(tgt,rel_src))
             end
           else
+            tgt = "/#{tgt}" unless tgt[0] == "/"
             if File.size(src) == 0
-              client.upload(tgt, '')
+              client.upload(tgt, File.read(src))
+              $stderr.puts "Uploaded Empty File: #{src}"
             else
-              client.chunked_upload(tgt, File.open(src))
+              session_upload(tgt, src)
             end
             say "#{src} -> #{tgt}"
           end
         end
         
-        uploader.call(args.first,target_name)
+        begin
+          uploader.call(args.first,target_name)
+        rescue DropboxApi::Errors::UploadWriteFailedError
+          raise UploadFailed, "Could not upload file, check for conflicts"
+        end
       end
+
+      MAX_BUFFER_SIZE = 150 * (1024 ** 2) - 1
+      def session_upload(tgt, src)
+        total_size = File.size(src)
+        upload_size = total_size / 100
+        if (total_size < 1024 ** 2) || (upload_size > MAX_BUFFER_SIZE)
+          upload_size = MAX_BUFFER_SIZE
+        end
+        session = client.upload_session_start("").to_hash
+        
+        # Uploads the file
+        upload_thr = Thread.new {
+          File.open(src) do |f|
+            while (buffer = f.read(upload_size)) do
+              client.upload_session_append_v2(session, buffer)
+              session["offset"] += buffer.size
+            end
+          end
+          client.upload_session_finish(session, "path" => tgt)
+        }
+
+        # Monitors the upload
+        old_complete = nil
+        $stderr.print "Uploading #{src}:  "
+        while upload_thr.alive? do
+          complete = (session.to_hash["offset"].to_f / total_size * 100).round
+          complete = 99 if complete > 99
+          unless complete == old_complete
+            $stderr.print "#{"\b" * (old_complete.to_s.length + 1)}#{complete}%"
+          end 
+          old_complete = complete
+          sleep 0.1
+        end
+        $stderr.puts "#{"\b" * (old_complete.to_s.length + 1)}100%"
+        upload_thr.join
+      end
+=begin
+TO BE REFACTORED
 
       def get
         target_name =
@@ -212,7 +253,7 @@ TO BE REFACTORED
       def verify
         account = client.get_current_account
         puts "#{account.name.display_name} <#{account.email}> verified."
-      rescue Dropbox::API::Error::Unauthorized
+      rescue DropboxApi::Errors, OAuth2::Error
         raise Unauthorized, "authorization token is invalid or incorrect"
       end
       
