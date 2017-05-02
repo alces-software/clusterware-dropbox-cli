@@ -33,7 +33,7 @@ module Alces
         else
           super
         end
-      rescue DropboxApi::Errors, Alces::ClusterwareDropbox::Error
+      rescue DropboxApi::Errors::BasicError, Alces::ClusterwareDropbox::Error
         say "#{'ERROR'.underline.color(:red)}: #{$!.message}"
         exit(1)
       rescue Interrupt
@@ -189,27 +189,14 @@ module Alces
         end
       end
 
-=begin
-TO BE REFACTORED
       def rm
         if options.recursive
-          base = resolve_target(args.first, :directory)
-          destroyer = ->(dir) do
-            client.ls(dir).map do |f|
-              if f.is_dir
-                destroyer.call(f.path)
-              end
-              f.destroy
-              say "deleted #{f.path}"
-            end
-          end
-          destroyer.call(args.first)
-          base.destroy
-          say "deleted #{base.path}"
+          resolve_target(args.first, :directory)
         else
-          target(:file).destroy
-          say "deleted #{args[0]}"
+          resolve_target(args.first, :file)
         end
+        delete_file_folder(args.first)
+        say "deleted #{args.first}"
       end
 
       def list
@@ -233,18 +220,33 @@ TO BE REFACTORED
 
       def mkdir
         if args.length > 0
-          client.mkdir args.first
+          folder = (args.first[0] == "/" ? args.first : "/#{args.first}")
+          raise InvalidTarget.new "invalid input: root directory" if folder == "/"
+          client.create_folder folder
         else
           raise MissingArgument, "no directory name supplied"
         end
         say "created bucket #{args[0]}"
+      rescue DropboxApi::Errors::FolderConflictError
+        raise FolderExists.new "bucket already exists"
       end
 
       def rmdir
-        target(:directory).destroy
+        if args.length > 0
+          delete_file_folder args.first
+        else
+          raise MissingArgument, "no bucket name supplied"
+        end
         say "removed bucket #{args[0]}"
+      rescue DropboxApi::Errors::NotFoundError
+        raise TargetNotFound.new "bucket not found"
       end
-=end
+
+      def delete_file_folder(f)
+        f = "/#{f}" unless f[0] == "/"
+        raise InvalidTarget.new "Can not delete root folder" if f == "/"
+        client.delete f
+      end
 
       def authorize
         authenticator = DropboxApi::Authenticator.new(
@@ -274,16 +276,7 @@ TO BE REFACTORED
       def client
         @client ||= DropboxApi::Client.new(ENV['cw_STORAGE_dropbox_access_token'])
       end
-=begin
-TO BE REFACTORED
-      def target(type = :file)
-        if args.length > 0
-          resolve_target(args.first, type)
-        else
-          raise MissingArgument, "no #{type} name supplied"
-        end
-      end
-=end
+
       def resolve_target(name, type = :file)
         name = "/#{name}" unless name[0] == "/"
         if type == :link
