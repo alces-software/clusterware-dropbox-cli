@@ -59,45 +59,43 @@ module Alces
         end
         target_name = args[1] || File.basename(args.first)
         target_name = "/#{target_name}" unless target_name[0] == "/"
-        begin
-          target_filename = File.basename(target_name)
-          target_dir = File.dirname(target_name)
-          # Handles the funky regex in the sdk
-          if target_dir == "/" || target_dir == "/."
-            target_dir = "" 
-          end
-          search = client.search("f", target_dir)
-        rescue DropboxApi::Errors::NotFoundError, DropboxApi::Errors::HttpError => e
-          nil
-        else
-          search.matches.each do |match|
-            if target_name == match.resource.to_hash["path_display"]
-              raise FileExists, "a remote file already exists at: #{target_name}"
-            end
-          end
-        end
-
-        uploader = ->(tgt, src) do
-          if File.directory?(src)
-            src_root = Pathname.new(src)
-            Dir.glob(File.join(src_root,'*')).each do |f|
-              rel_src = Pathname.new(f).relative_path_from(src_root).to_s
-              uploader.call(f, File.join(tgt,rel_src))
-            end
-          else
-            if File.size(src) == 0
-              client.upload(tgt, File.read(src), mode: :overwrite)
-            else
-              session_upload(tgt, src)
-            end
-            say "#{src} -> #{tgt}"
-          end
-        end
         
-        begin
-          uploader.call(target_name, args.first)
-        rescue DropboxApi::Errors::UploadWriteFailedError
-          raise UploadFailed, "Could not upload file, check for conflicts"
+        check_dropbox_file_conflict(target_name, args.first)
+        dropbox_uploader(target_name, args.first)
+      end
+
+      def check_dropbox_file_conflict(tgt, src)
+        if File.directory?(src)
+          src_root = Pathname.new(src)
+          Dir.glob(File.join(src_root,'*')).each do |f|
+            rel_src = Pathname.new(f).relative_path_from(src_root).to_s
+            check_dropbox_file_conflict(File.join(tgt,rel_src), "")
+          end
+        else
+          begin
+            resolve_target(tgt, :all)
+          rescue TargetNotFound
+            nil
+          else
+            raise FileExists.new "File already exists in dropbox: #{tgt}"
+          end
+        end
+      end
+
+      def dropbox_uploader(tgt, src)
+        if File.directory?(src)
+          src_root = Pathname.new(src)
+          Dir.glob(File.join(src_root,'*')).each do |f|
+            rel_src = Pathname.new(f).relative_path_from(src_root).to_s
+            dropbox_uploader(File.join(tgt,rel_src), f)
+          end
+        else
+          if File.size(src) == 0
+            client.upload(tgt, File.read(src), mode: :overwrite)
+          else
+            session_upload(tgt, src)
+          end
+          say "#{src} -> #{tgt}"
         end
       end
 
@@ -125,7 +123,7 @@ module Alces
         old_complete = nil
         $stderr.print "Uploading #{src}:  "
         while upload_thr.alive? do
-          complete = (session.to_hash["offset"].to_f / total_size * 100).round
+          complete = (session["offset"].to_f / total_size * 100).round
           complete = 99 if complete > 99
           unless complete == old_complete
             $stderr.print "#{"\b" * (old_complete.to_s.length + 1)}#{complete}%"
@@ -136,8 +134,6 @@ module Alces
         $stderr.puts "#{"\b" * (old_complete.to_s.length + 1)}100%"
         upload_thr.join
       end
-=begin
-TO BE REFACTORED
 
       def get
         target_name =
@@ -156,27 +152,33 @@ TO BE REFACTORED
         end
 
         downloader = ->(name, tgt) do
-          remote = resolve_target(name)
-          if ! system("curl -L -s -o \"#{tgt}\" #{remote.direct_url.url}")
+          name = "/#{name}" unless name[0] == "/"
+          remote = resolve_target(name, :link)
+          if remote.file.to_hash["size"] == 0
+            system("touch #{tgt}")
+          elsif ! system("curl -L -s -o \"#{tgt}\" #{remote.link}")
             raise DownloadFailed, "failed to download: #{name}"
           end
           say "#{name} -> #{File.realpath(tgt)}"
         end
 
         lister = ->(dir) do
-          client.ls(dir).map do |f|
-            if f.is_dir
-              lister.call(f.path)
-            else
-              f.path
-            end
-          end.flatten.reverse
+          dir = "/#{dir}" unless dir[0] == "/"
+          lf = client.list_folder(dir, recursive: true)
+          list = lf.entries
+          while lf.has_more?
+            lf = client.list_folder_continue(lf.cursor)
+            list.concat(lf.entries)
+          end
+          list
         end
         
         if options.recursive
           resolve_target(args.first, :directory)
           lister.call(args.first).each do |src|
-            tgt_file = File.join(target_name,src.gsub(%r(^#{args.first}/),''))
+            next if src.is_a? DropboxApi::Metadata::Folder
+            src = src.to_hash["path_display"]
+            tgt_file = File.join(target_name, src.gsub(%r(^/#{args.first}/),''))
             FileUtils.mkdir_p(File.dirname(tgt_file))
             downloader.call(src, tgt_file)
           end
@@ -185,6 +187,8 @@ TO BE REFACTORED
         end
       end
 
+=begin
+TO BE REFACTORED
       def rm
         if options.recursive
           base = resolve_target(args.first, :directory)
@@ -268,7 +272,6 @@ TO BE REFACTORED
       def client
         @client ||= DropboxApi::Client.new(ENV['cw_STORAGE_dropbox_access_token'])
       end
-
 =begin
 TO BE REFACTORED
       def target(type = :file)
@@ -278,19 +281,32 @@ TO BE REFACTORED
           raise MissingArgument, "no #{type} name supplied"
         end
       end
-
+=end
       def resolve_target(name, type = :file)
-        client.find(name).tap do |f|
-          if f.is_dir && type == :file
-            raise TargetNotFound, "#{type} not found: #{args.first}"
-          elsif !f.is_dir && type == :directory
+        name = "/#{name}" unless name[0] == "/"
+        if type == :link
+          link_obj = client.get_temporary_link(name)
+          unless link_obj.file.to_hash[".tag"] == "file"
             raise TargetNotFound, "#{type} not found: #{args.first}"
           end
+          link_obj
+        else
+          md = client.get_metadata(name)
+          md.to_hash.tap do |f|
+            if type == :file && f[".tag"] != "file"
+              raise TargetNotFound, "#{type} not found: #{args.first}"
+            elsif (type == :directory || type == :folder) && f[".tag"] != "folder"
+              raise TargetNotFound, "#{type} not found: #{args.first}"
+            end
+          md
+          end
         end
-      rescue Dropbox::API::Error::NotFound
+      rescue DropboxApi::Errors::NotFoundError
         raise TargetNotFound, "#{type} not found: #{args.first}"
+      rescue DropboxApi::Errors::NotFileError
+        raise TargetNotFound, "#{args.first} not a file, try --recursive"
       end
-=end
+
       def assert_token
         if !ENV['cw_STORAGE_dropbox_access_token']
           raise Unauthorized, "access token (cw_STORAGE_dropbox_access_token)" \
