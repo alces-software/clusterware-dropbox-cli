@@ -175,12 +175,14 @@ module Alces
         
         if options.recursive
           resolve_target(args.first, :directory)
-          lister.call(args.first).each do |src|
-            next if src.is_a? DropboxApi::Metadata::Folder
-            src = src.to_hash["path_display"]
-            tgt_file = File.join(target_name, src.gsub(%r(^/#{args.first}/),''))
-            FileUtils.mkdir_p(File.dirname(tgt_file))
-            downloader.call(src, tgt_file)
+          lister.call(args.first).each do |src_class|
+            src = src_class.to_hash["path_display"]
+            tgt = File.join(target_name, src.gsub(%r(^/#{args.first}),''))
+            if src_class.is_a? DropboxApi::Metadata::Folder
+              FileUtils.mkdir_p(tgt)
+            else
+              downloader.call(src, tgt)
+            end
           end
         else
           downloader.call(args.first, target_name)
