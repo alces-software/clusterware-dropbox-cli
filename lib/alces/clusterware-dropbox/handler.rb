@@ -66,18 +66,40 @@ module Alces
 
       def check_dropbox_file_conflict(tgt, src)
         if File.directory?(src)
+          # pulls a complete list of target folders and files
           begin
-            tgt_files = ls_folder(tgt, true)
+            tgt_files_raw = ls_folder(tgt, true)
           rescue DropboxApi::Errors::NotFoundError
-            tgt_files = []
+            tgt_files_raw = []
           end
-          tgt_files.map! { |f| f.to_hash["path_display"].gsub(/\A#{tgt}\/?/, "") }
+          tgt_files = tgt_files_raw.map do |f| 
+            f.to_hash["path_display"].gsub(/\A#{tgt}\/?/, "")
+          end
+
+          # Gets the list of source files and identifies conflicts
           src_files = Dir.glob("#{src}/**/*")
-                         .delete_if { |f| File.directory?(f) }
                          .map { |f| f.gsub(/\A#{src}\//, "") }
-          intersection = tgt_files & src_files
-          if intersection.length > 0
-            raise FileExists, "File(s) already in dropbox: #{intersection}"
+          conflict_set = tgt_files & src_files
+
+          # Allows the conflict iff both the source and target are folders
+          if conflict_set.length > 0
+            tgt_folders = tgt_files_raw.delete_if do |f|
+              !f.is_a? DropboxApi::Metadata::Folder
+            end
+            tgt_folders.map! do 
+              |f| f.to_hash["path_display"].gsub(/\A#{tgt}\/?/, "")
+            end
+
+            # Ignores folder to folder conflicts
+            conflict_set.delete_if do |c|
+              ignore_conflict = true
+              ignore_conflict = false unless tgt_folders.include?(c)
+              ignore_conflict = false unless File.directory?(File.join(src, c))
+              ignore_conflict
+            end
+          end
+          if conflict_set.length > 0
+            raise FileExists, "File(s) already in dropbox: #{conflict_set}"
           end
         else
           begin
@@ -100,12 +122,14 @@ module Alces
         else
           if File.size(src) == 0
             client.upload(tgt, File.read(src), mode: :overwrite)
-            $stderr.puts "Uploading #{tgt}: 100%"
+            $stderr.puts "Uploading #{src}: 100%"
           else
             session_upload(tgt, src)
           end
           say "#{src} -> #{tgt}"
         end
+      rescue DropboxApi::Errors::FileAncestorConflictError
+        raise UploadFailed, "Part of the directory path conflicts with a file: #{tgt}"
       end
 
       MAX_BUFFER_SIZE = 150 * (1024 ** 2) - 1
@@ -188,8 +212,7 @@ module Alces
       end
 
       def list
-        raise MissingArgument, "path must be specified" if args.length < 1
-        files = ls_folder(args.first, false)
+        files = ls_folder(args.length < 1 ? "" : args.first, false)
         files.each do |f|
           f = f.to_hash
           if f[".tag"] == "folder"
@@ -206,6 +229,8 @@ module Alces
                        f["path_display"].split('/').last)
           end
         end
+      rescue DropboxApi::Errors::NotFoundError
+        raise TargetNotFound, "Could not find folder: #{args.first}"
       end
 
       def ls_folder(dir, recursive_bool = false)
@@ -230,12 +255,15 @@ module Alces
         end
         say "created bucket #{args[0]}"
       rescue DropboxApi::Errors::FolderConflictError
-        raise FolderExists.new "bucket already exists"
+        raise FolderExists, "bucket already exists"
+      rescue DropboxApi::Errors::FileConflictError, DropboxApi::Errors::FileAncestorConflictError
+        raise InvalidTarget, "file exists with same name within bucket path"
       end
 
       def rmdir
         if args.length > 0
-          delete_file_folder args.first
+          resolve_target(args.first, :directory)
+          delete_file_folder(args.first)
         else
           raise MissingArgument, "no bucket name supplied"
         end
