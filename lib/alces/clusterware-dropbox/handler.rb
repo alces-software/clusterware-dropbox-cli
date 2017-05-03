@@ -66,10 +66,18 @@ module Alces
 
       def check_dropbox_file_conflict(tgt, src)
         if File.directory?(src)
-          src_root = Pathname.new(src)
-          Dir.glob(File.join(src_root,'*')).each do |f|
-            rel_src = Pathname.new(f).relative_path_from(src_root).to_s
-            check_dropbox_file_conflict(File.join(tgt,rel_src), "")
+          begin
+            tgt_files = ls_folder(tgt, true)
+          rescue DropboxApi::Errors::NotFoundError
+            tgt_files = []
+          end
+          tgt_files.map! { |f| f.to_hash["path_display"].gsub(/\A#{tgt}\/?/, "") }
+          src_files = Dir.glob("#{src}/**/*")
+                         .delete_if { |f| File.directory?(f) }
+                         .map { |f| f.gsub(/\A#{src}\//, "") }
+          intersection = tgt_files & src_files
+          if intersection.length > 0
+            raise FileExists, "File(s) already in dropbox: #{intersection}"
           end
         else
           begin
@@ -77,7 +85,7 @@ module Alces
           rescue TargetNotFound
             nil
           else
-            raise FileExists.new "File already exists in dropbox: #{tgt}"
+            raise FileExists, "File already in dropbox: #{tgt}"
           end
         end
       end
@@ -92,6 +100,7 @@ module Alces
         else
           if File.size(src) == 0
             client.upload(tgt, File.read(src), mode: :overwrite)
+            $stderr.puts "Uploading #{tgt}: 100%"
           else
             session_upload(tgt, src)
           end
@@ -161,21 +170,10 @@ module Alces
           end
           say "#{name} -> #{File.realpath(tgt)}"
         end
-
-        lister = ->(dir) do
-          dir = "/#{dir}" unless dir[0] == "/"
-          lf = client.list_folder(dir, recursive: true)
-          list = lf.entries
-          while lf.has_more?
-            lf = client.list_folder_continue(lf.cursor)
-            list.concat(lf.entries)
-          end
-          list
-        end
         
         if options.recursive
           resolve_target(args.first, :directory)
-          lister.call(args.first).each do |src_class|
+          ls_folder(args.first, true).each do |src_class|
             src = src_class.to_hash["path_display"]
             tgt = File.join(target_name, src.gsub(%r(^/#{args.first}),''))
             if src_class.is_a? DropboxApi::Metadata::Folder
@@ -189,33 +187,37 @@ module Alces
         end
       end
 
-      def rm
-        if options.recursive
-          resolve_target(args.first, :directory)
-        else
-          resolve_target(args.first, :file)
+      def list
+        raise MissingArgument, "path must be specified" if args.length < 1
+        files = ls_folder(args.first, false)
+        files.each do |f|
+          f = f.to_hash
+          if f[".tag"] == "folder"
+            puts sprintf("%16s %10s   %s",
+                       '-',
+                       'DIR',
+                       f["path_display"].split('/').last)
+          else
+            time = DateTime.strptime(f["client_modified"],
+                                     '%Y-%m-%dT%H:%M:%SZ')
+            puts sprintf("%16s %10s   %s",
+                       time.strftime('%Y-%m-%d %H:%M'),
+                       f["size"],
+                       f["path_display"].split('/').last)
+          end
         end
-        delete_file_folder(args.first)
-        say "deleted #{args.first}"
       end
 
-      def list
-        prefix = [args.first].compact
-        files = client.ls(*prefix)
-        files.select(&:is_dir).each do |d|
-          puts sprintf("%s %10s   %s",
-                       Time.rfc2822(d.modified).strftime('%Y-%m-%d %H:%M'),
-                       'DIR',
-                       d.path.split('/').last)
+      def ls_folder(dir, recursive_bool = false)
+        dir = "/#{dir}" unless dir[0] == "/"
+        dir = "" if dir == "/"
+        lf = client.list_folder(dir, recursive: recursive_bool)
+        list_raw = lf.entries
+        while lf.has_more?
+          lf = client.list_folder_continue(lf.cursor)
+          list_raw.concat(lf.entries)
         end
-        files.reject(&:is_dir).each do |f|
-          puts sprintf("%s %10s   %s",
-                       Time.rfc2822(f.modified).strftime('%Y-%m-%d %H:%M'),
-                       f.bytes,
-                       f.path.split('/').last)
-        end
-      rescue Dropbox::API::Error::NotFound
-        raise TargetNotFound, "not found: #{args.first}"
+        list_raw
       end
 
       def mkdir
@@ -240,6 +242,16 @@ module Alces
         say "removed bucket #{args[0]}"
       rescue DropboxApi::Errors::NotFoundError
         raise TargetNotFound.new "bucket not found"
+      end
+
+      def rm
+        if options.recursive
+          resolve_target(args.first, :directory)
+        else
+          resolve_target(args.first, :file)
+        end
+        delete_file_folder(args.first)
+        say "deleted #{args.first}"
       end
 
       def delete_file_folder(f)
