@@ -45,7 +45,6 @@ module Alces
     class Handler < Struct.new(:args, :options)
       def initialize(*a, requires_token: true)
         super(*a)
-        Dotenv.load(File.expand_path("#{ENV['cw_ROOT']}/opt/clusterware-dropbox-cli/.env"))
         assert_token if requires_token
       end
 
@@ -289,6 +288,7 @@ module Alces
       end
 
       def authorize
+        Dotenv.load(File.expand_path("#{ENV['cw_ROOT']}/opt/clusterware-dropbox-cli/.env"))
         authenticator = DropboxApi::Authenticator.new(
                           ENV['cw_STORAGE_dropbox_appkey'],
                           ENV['cw_STORAGE_dropbox_appsecret'])
