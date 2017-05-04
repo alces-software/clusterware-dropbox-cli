@@ -25,7 +25,7 @@ module Alces
       include Commander::Methods
 
       def run
-        program :version, '1.1.0'
+        program :version, '2.0.0'
         program :description, 'A basic command-line interface to Dropbox (for use with Alces Clusterware)'
 
         command :put do |c|
