@@ -23,7 +23,7 @@ cw_STORAGE_dropbox_appsecret='<application secret>'
 ## Usage
 
 ```
-[user@localhost clusterware-dropbox-cli]$ bin/clusterwar-dropbox authorize
+[user@localhost clusterware-dropbox-cli]$ bin/clusterware-dropbox authorize
 Please visit the following URL in your browser and click 'Authorize':
 
   https://www.dropbox.com/1/oauth/authorize?oauth_token=<auth_token>
