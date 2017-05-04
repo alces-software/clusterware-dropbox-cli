@@ -25,9 +25,12 @@ module Alces
     class MissingArgument < Error; end
     class TargetNotFound < Error; end
     class InvalidSource < Error; end
+    class InvalidTarget < Error; end
     class SourceNotFound < Error; end
     class FileExists < Error; end
+    class FolderExists < Error; end
     class DownloadFailed < Error; end
     class Unauthorized < Error; end
+    class UploadFailed < Error; end
   end
 end

@@ -19,7 +19,7 @@
 # For more information on the Alces Clusterware Dropbox, please visit:
 # https://github.com/alces-software/clusterware-dropbox
 #==============================================================================
-require 'dropbox-api'
+require 'dropbox_api'
 require 'commander'
 require 'highline'
 require 'dotenv'
@@ -29,7 +29,3 @@ require 'alces/clusterware-dropbox/handler'
 require 'alces/clusterware-dropbox/cli'
 
 HighLine.colorize_strings
-Dotenv.load(File.expand_path("#{ENV['BUNDLE_GEMFILE']}/../.env"))
-Dropbox::API::Config.app_key = ENV['cw_STORAGE_dropbox_appkey']
-Dropbox::API::Config.app_secret = ENV['cw_STORAGE_dropbox_appsecret']
-Dropbox::API::Config.mode = 'dropbox'

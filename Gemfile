@@ -21,6 +21,6 @@
 #==============================================================================
 source 'https://rubygems.org'
 
-gem 'dropbox-api', '~> 0.4.7'
 gem 'commander', '~> 4.3.8'
 gem 'dotenv', '~> 2.1.0'
+gem 'dropbox_api', '~> 0.1.5'
