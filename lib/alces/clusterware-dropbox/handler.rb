@@ -288,7 +288,7 @@ module Alces
       end
 
       def authorize
-        Dotenv.load(File.expand_path("#{ENV['BUNDLE_GEMFILE']}/../.env"))
+        Dotenv.load(File.expand_path("#{__FILE__}/../../../../.env"))
         authenticator = DropboxApi::Authenticator.new(
                           ENV['cw_STORAGE_dropbox_appkey'],
                           ENV['cw_STORAGE_dropbox_appsecret'])
